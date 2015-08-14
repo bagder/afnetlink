@@ -47,22 +47,15 @@ int  loop (int sock, struct sockaddr_nl *addr)
     bzero(buffer, sizeof(buffer));
 
     /* Receiving netlink socket data */
-    while (1)
-    {
-        received_bytes = recv(sock, buffer, sizeof(buffer), 0);
-        if (received_bytes < 0)
-            ERR_RET("recv");
-        /* cast the received buffer */
-        nlh = (struct nlmsghdr *) buffer;
-        /* If we received all data ---> break */
-        if (nlh->nlmsg_type == NLMSG_DONE)
-            break;
-
-        fprintf(stderr, "TYPE: %x\n", nlh->nlmsg_type);
-
-        /* We are just intrested in Routing information */
-        if (addr->nl_groups == RTMGRP_IPV4_ROUTE)
-            break;
+    while (1) {
+      received_bytes = recv(sock, buffer, sizeof(buffer), 0);
+      if (received_bytes < 0)
+        ERR_RET("recv");
+      /* cast the received buffer */
+      nlh = (struct nlmsghdr *) buffer;
+      /* If we received all data ---> break */
+      if (nlh->nlmsg_type == NLMSG_DONE)
+        break;
     }
 
     /* Reading netlink socket data */
@@ -72,15 +65,25 @@ int  loop (int sock, struct sockaddr_nl *addr)
      * http://www.kernel.org/doc/man-pages/online/pages/man7/rtnetlink.7.html
      */
 
-    for ( ; NLMSG_OK(nlh, received_bytes); \
-                    nlh = NLMSG_NEXT(nlh, received_bytes))
-    {
+    for ( ; NLMSG_OK(nlh, received_bytes);
+          nlh = NLMSG_NEXT(nlh, received_bytes)) {
+      switch(nlh->nlmsg_type) {
+      case NLMSG_DONE:
+        printf("DONE\n");
+        break;
+      case NLMSG_ERROR:
+        printf("ERROR\n");
+        break;
+      case RTM_DELROUTE:
+      case RTM_NEWROUTE:
+
         /* Get the route data */
         route_entry = (struct rtmsg *) NLMSG_DATA(nlh);
 
         /* We are just intrested in main routing table */
-        if (route_entry->rtm_table != RT_TABLE_MAIN)
-            continue;
+        if (route_entry->rtm_table != RT_TABLE_MAIN) {
+          printf("Non-main routing: ");
+        }
 
         /* Get attributes of route_entry */
         route_attribute = (struct rtattr *) RTM_RTA(route_entry);
@@ -88,30 +91,33 @@ int  loop (int sock, struct sockaddr_nl *addr)
         /* Get the route atttibutes len */
         route_attribute_len = RTM_PAYLOAD(nlh);
         /* Loop through all attributes */
-        for ( ; RTA_OK(route_attribute, route_attribute_len); \
-            route_attribute = RTA_NEXT(route_attribute, route_attribute_len))
-        {
-            /* Get the destination address */
-            if (route_attribute->rta_type == RTA_DST)
-            {
-                inet_ntop(AF_INET, RTA_DATA(route_attribute), \
-                        destination_address, sizeof(destination_address));
-            }
-            /* Get the gateway (Next hop) */
-            if (route_attribute->rta_type == RTA_GATEWAY)
-            {
-                inet_ntop(AF_INET, RTA_DATA(route_attribute), \
-                        gateway_address, sizeof(gateway_address));
-            }
+        for ( ; RTA_OK(route_attribute, route_attribute_len);
+              route_attribute = RTA_NEXT(route_attribute, route_attribute_len)) {
+          /* Get the destination address */
+          if (route_attribute->rta_type == RTA_DST) {
+            inet_ntop(AF_INET, RTA_DATA(route_attribute),
+                      destination_address, sizeof(destination_address));
+          }
+          /* Get the gateway (Next hop) */
+          if (route_attribute->rta_type == RTA_GATEWAY) {
+            inet_ntop(AF_INET, RTA_DATA(route_attribute),
+                      gateway_address, sizeof(gateway_address));
+          }
         }
 
         /* Now we can dump the routing attributes */
         if (nlh->nlmsg_type == RTM_DELROUTE)
-            fprintf(stdout, "Deleting route to destination --> %s and gateway %s\n", \
-                destination_address, gateway_address);
+          fprintf(stdout,
+                  "Deleting route to destination --> %s and gateway %s\n",
+                  destination_address, gateway_address);
         if (nlh->nlmsg_type == RTM_NEWROUTE)
-            printf("Adding route to destination --> %s and gateway %s\n", \
-                            destination_address, gateway_address);
+          printf("Adding route to destination --> %s and gateway %s\n",
+                 destination_address, gateway_address);
+        break;
+      case RTM_NEWADDR:
+        printf("New IP address\n");
+        break;
+      }
     }
 
     return 0;
@@ -129,11 +135,8 @@ int main(int argc, char **argv)
         ERR_RET("socket");
 
     addr.nl_family = AF_NETLINK;
-    addr.nl_groups = RTMGRP_IPV4_ROUTE;
-
-    /* RTMGRP_IPV4_IFADDR |
-       RTMGRP_IPV6_IFADDR |
-       RTMGRP_IPV6_ROUTE  */
+    addr.nl_groups = RTMGRP_IPV4_ROUTE | RTMGRP_IPV4_IFADDR |
+      RTMGRP_IPV6_IFADDR | RTMGRP_IPV6_ROUTE;
 
     if (bind(sock,(struct sockaddr *)&addr,sizeof(addr)) < 0)
         ERR_RET("bind");
